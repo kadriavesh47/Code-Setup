@@ -1,0 +1,295 @@
+<?php
+
+if (!defined('BASEPATH'))
+    exit('No direct script access allowed');
+
+class Login extends CI_Controller {
+
+    public function index()
+    {
+        if(isset($_GET['emailid']))
+            $email = $_GET['emailid'];
+        else
+            $email = '';
+        $parse = parse_url(base_url());
+        $domainArr = explode('.cuztomise.com', $parse['host']);
+        $css = $this->load->view('Include/css', null, true);
+        $js = $this->load->view('Include/js', null, true);
+        echo $this->load->view('login', array('css' => $css, 'js' => $js, 'domain'=>$domainArr[0], 'email'=>$email ), true);
+    }
+
+    public function checklogin()
+    {
+        $username = $_POST['username'];
+        $password = $_POST['password'];
+        $domain = $_POST['subdomain'];
+        $encryptedpswd = hash('sha256', $password);
+        $login = $this->rest->webapi('/login/checklogin/', array('username' => $username, 'password' => $encryptedpswd, 'domain' => $domain));
+         // print_r($login);
+         // return;
+        if ($login['numResults'] > 0 )
+        {
+          
+
+            $group = $this->rest->webapi('/group/fetchGroupOfUser/', array('dbname' => (string) $login['results']->result->org_db, 'userId' => (string) $login['results']->result->id));
+        
+        
+            $grp = "";
+            if($group)
+            {
+          
+            foreach ($group['results'] as $g)
+            {
+                $grp .= $g->id.",";
+            }
+            
+            }
+
+
+            $this->session->set_userdata('userid', (string) $login['results']->result->id);
+            $this->session->set_userdata('group', trim($grp));
+            $this->session->set_userdata('customerid', (string) $login['results']->result->cust_id);
+            $this->session->set_userdata('show_tracker', (string) $login['results']->result->show_tracker);
+            $this->session->set_userdata('vertical', (string) $login['results']->result->vertical);
+            
+            $custDatainfo = $this->rest->webapi('/customer/fetchCustomer/',array('dbname'=>(string) $login['results']->result->org_db,'custId'=>(string) $login['results']->result->cust_id));
+            $custuserid=(string)$custDatainfo['results']->result->id;
+            
+            $packageinfo = $this->rest->webapi('/package/fetchPackage/',array('dbname'=>'cuztomise_global','custId'=>(string) $login['results']->result->cust_id));
+            
+            $packagename=$packageinfo['results']->result->packagename;
+
+            $termData = $this->rest->webapi('/setting/fetchAllterminology',array('dbname'=>trim($login['results']->result->org_db)));
+
+            $this->session->set_userdata('packagename', (string) $packagename);
+            $this->session->set_userdata('database', (string) $login['results']->result->org_db);
+            $this->session->set_userdata('emailid', (string) $login['results']->result->email_id);
+            $this->session->set_userdata('role', (string) $login['results']->result->role);
+            $this->session->set_userdata('username', (string) $login['results']->result->username);
+            $this->session->set_userdata('photo', (string) $login['results']->result->profile_photo);
+            $this->session->set_userdata('logo', (string) $login['results']->result->company_logo);
+            $this->session->set_userdata('company', (string) $login['results']->result->company_name);
+            $this->session->set_userdata('domain', (string) $login['results']->result->domain_name);
+            $this->session->set_userdata('isfirstlogin', (string) $login['results']->result->is_firstlogin);
+            $this->session->set_userdata('user_communication', (string)$custDatainfo['results']->result->user_communication);
+
+            foreach ($termData['results'] as $value) {
+            
+            $termName = (string)$value->terminology_name;
+            $this->session->set_userdata($termName, (string)$value->alternate_name);
+            }
+            
+            $customData = $this->rest->webapi('/setting/fetchCustomField/',array('dbname'=>trim($login['results']->result->org_db),'keys'=>'VISIT_PREFIX','userId'=>$custuserid));
+            
+            $noper = $this->rest->webapi('/setting/fetchCustomField/',array('dbname'=>trim($login['results']->result->org_db),'keys'=>'NO_PER_PAGE','userId'=>trim($login['results']->result->id)));
+            
+            if($noper['results'])
+            {
+                if($noper['results']->result->value!=0)
+                $this->session->set_userdata('noperpage', (string)trim($noper['results']->result->value));
+                else
+                 $this->session->set_userdata('noperpage', '5');   
+            }
+            else
+            {
+                $this->session->set_userdata('noperpage', '5');
+            }
+
+            $prefix = trim($customData['results']->result->value);
+            $this->session->set_userdata('prefix', (string) $prefix);
+
+            $roleadmin=$this->session->userdata('role');
+            if($roleadmin=="root")
+            {
+                $this->session->set_userdata('zones', 'All');
+                $this->session->set_userdata('supervised_emp','0');
+                $this->session->set_userdata('designation', 'none');
+                $this->session->set_userdata('user_level','0');
+            }
+            else if($roleadmin=="Administrator")
+            {
+                $empData = $this->rest->webapi('/user/fetchadmindetail/',array('userId'=>(string) $login['results']->result->id,'db'=>$this->session->userdata('database')));
+                $this->session->set_userdata('zones', (string)$empData['results']->result->admin_zone);
+                $this->session->set_userdata('division', (string)$empData['results']->result->division);
+                $this->session->set_userdata('supervised_emp', '0');
+                $this->session->set_userdata('designation', 'none');
+                $this->session->set_userdata('user_level','0');            
+                $this->session->set_userdata('admin_type',(string)$empData['results']->result->admin_type);            
+            
+            }
+            else if($roleadmin=="Supervisor")
+            {    
+
+                 $empData = $this->rest->webapi('/employee/getUserDataById/',array('userId'=>(string) $login['results']->result->id,'databasename'=>$this->session->userdata('database')));
+                 $this->session->set_userdata('zones', (string)$empData['zones_id']);
+                 
+                 if(trim($this->session->userdata('database'))=='cuztomise_Larenon' || trim($this->session->userdata('database'))=='cuztomise_SevidaPharma')
+                 {
+                    $supervisor = $this->rest->webapi('/employee/fetchEmpIdUnderManager/', array('dbname' => $this->session->userdata('database'), 'managerUserid' => (string) $login['results']->result->id,'type'=>'TOURPLAN' ));
+
+                    $supervisor_id = '';
+                    foreach ($supervisor['results'] as $key => $value) {
+                        $supervisor_id.= $value->id.',';
+                    }
+                    if(trim($supervisor_id,',') == ""){
+                        $supervisor_id = 'null';
+                        $supervisor_id = 01;
+                    }
+
+                    $empData1 = array("ids"=>trim($supervisor_id,','));
+                 }
+                 else
+                 {
+                        $empData1 = $this->rest->webapi('/employee/fetchsupervisoremp/',array('id'=>(string) $login['results']->result->id,'databasename'=>$this->session->userdata('database')));
+                 }
+
+
+
+                 $idss=$empData1['ids'];
+                 if($idss)
+                 $this->session->set_userdata('supervised_emp', $idss);
+                 else
+                 $this->session->set_userdata('supervised_emp', '0');
+
+                 $this->session->set_userdata('division', (string)$empData['division_id']);
+                 $this->session->set_userdata('designation', (string)$empData['emp_designation']);
+                 $this->session->set_userdata('user_level',(string)$empData['user_level']); 
+
+            
+
+            }
+            else
+            {
+                $empData = $this->rest->webapi('/employee/getUserDataById/',array('userId'=>(string) $login['results']->result->id,'databasename'=>$this->session->userdata('database')));
+                $this->session->set_userdata('zones', (string)$empData['zones_id']);
+                $this->session->set_userdata('supervised_emp','0');
+                $this->session->set_userdata('designation', (string)$empData['emp_designation']);
+                $this->session->set_userdata('user_level',(string)$empData['user_level']);
+            }
+
+
+        }
+        else
+        {
+            echo "false";
+        }
+    }
+
+    public function logout()
+    {
+        $this->session->set_userdata('userid', '');
+        $this->session->set_userdata('group', '');
+        $this->session->set_userdata('customerid', '');
+        $this->session->set_userdata('database', '');
+        $this->session->set_userdata('emailid', '');
+        $this->session->set_userdata('role', '');
+        $this->session->set_userdata('username', '');
+        $this->session->set_userdata('photo', '');
+        $this->session->set_userdata('logo', '');
+        $this->session->set_userdata('company', '');
+        $this->session->set_userdata('domain', '');
+        $this->session->set_userdata('admin_type', '');
+        $this->session->set_userdata('user_communication', '');
+
+        $this->session->set_userdata('field','');
+        $this->session->set_userdata('orderby','');
+        $this->session->set_userdata('search','');
+        $this->session->set_userdata('order','');
+        $this->session->set_userdata('city','');
+        $this->session->set_userdata('status','');
+        $this->session->set_userdata('pageNo','');
+
+
+        redirect(base_url() . 'login');
+    }
+
+    function forgotPassword2()
+    {
+        $email = $_POST['email'];
+        $userData = $this->rest->webapi('/user/fetchUserByEmail/', array('dbname' => 'cuztomise_global', 'email' => $email,'vertical'=>VERTICAl));
+        $html = "<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>
+                    <html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>
+                    <head>
+                            <meta http-equiv='Content-Type' content='text/html;charset=UTF-8' />
+                            <title></title>
+                    </head>
+                    <body style='font-size:12px;font-family:verdana;'>
+                            <div style='width:600px;margin:0 auto;line-height:18px;border-style: solid; border-color:Red;padding: 15px;'>
+                                    <p style='float:left;width:50%;'><a href='#'><img width='200' alt='' src='".base_url()."/upload/companylogo/200x100/".$this->session->userdata('logo')."' border='0'><br/><br/></a></p>
+                                    <p style='display:block;clear:both;height:25px;'>&nbsp;</p>
+                                    <p style='display:block;clear:both;font-size:12px;'>Hey " . ucwords($userData['results']->result->username) . " <b>,</b></p>
+                                    Please Click the link below to reset your password.<br/>
+                                    <a style='color:#2A54CE;text-decoration:none;' href ='".base_url()."resetpassword?id=".base64_encode($userData['results']->result->id)."'>".base_url()."resetpassword?id=".base64_encode($userData['results']->result->id)."</a><br/>
+                                    <p>
+                                        Sincerely,<br/>
+                                        Cuztomise<br/>
+                                        <a style='color:#2A54CE;text-decoration:none;'
+                                        href ='http://www.cuztomise.com'>www.cuztomise.com</a><br/>
+                                    </p>
+                                    <p style='display:block;clear:both;'>&nbsp;</p>
+                            </div>
+                    </body>
+                    </html>";
+        sendEmail($email, '','Cuztomise: Reset your password',$html);
+        redirect(base_url());
+    }
+
+    function forgotPassword()
+    {
+        $email = $_POST['email'];
+
+        // print_r($email);
+        // return;
+
+        $userData = $this->rest->webapi('/user/fetchUserByEmail/', array('dbname' => 'cuztomise_global', 'email' => $email,'vertical'=>'Pharma'));
+         
+        
+         
+        if($userData['numResults']>0)
+        {
+           //$templateData = $this->rest->webapi('/template/fetch_email_template/', array('dbname' => $this->session->userdata('database'),'id'=>2));
+            $cname=(string)$userData['results']->result->org_db;
+            $name = ucwords($userData['results']->result->username);
+            $temp_id = '0002';
+            $type = 'Cuztomise: Reset your password';
+
+            $companyImage = "<img width='200' alt='' src='".base_url()."/upload/companylogo/200x100/".trim($userData['results']->result->company_logo)."' border='0'>";
+            $link = "<a style='color:#2A54CE;text-decoration:none;' href ='".base_url()."resetpassword?id=".base64_encode($userData['results']->result->id)."'>".base_url()."resetpassword?id=".base64_encode($userData['results']->result->id)."</a>";
+            $companyURL = "<a style='color:#2A54CE;text-decoration:none;'href ='http://www.cuztomise.com'>www.cuztomise.com</a>";
+            $password =rand(10000,99999);
+
+            $data = array('name'=>$name,'companyImage'=>$companyImage,'companyURL'=>$companyURL,'link'=>$link,'password'=>$password);
+            $value = $this->email_lib->email_template($temp_id,$data,$email,$cname,$type);
+
+            $encryptedpswd = hash('sha256', $password);
+
+            $userpass = $this->rest->webapi('/user/changePasswordByUserEmail/', array('dbname' => 'cuztomise_global', 'email' => $email,'password'=>$encryptedpswd));
+
+            redirect(base_url());
+        }
+        else
+        {
+            echo "false";
+
+        }
+ 
+    }
+
+    function resetPassword()
+    {
+        $id = base64_decode($_GET['id']);
+        $css = $this->load->view('Include/css', null, true);
+        $js = $this->load->view('Include/js', null, true);
+        $footer = $this->load->view('footer', null, true);
+        echo $this->load->view('resetpassword', array('css' => $css, 'js' => $js, 'footer'=>$footer, 'userId'=>$id), true);
+    }
+
+    function resetPwd()
+    {
+        $id = $_POST['userId'];
+        $password = $_POST['password'];
+        $rtPassword = $_POST['rtPassword'];
+        $encryptedpswd = hash('sha256', $password);
+        $this->rest->webapi('/user/updateUser/', array('dbname' => 'cuztomise_global', 'data' => array('id'=>$id,'password'=>$encryptedpswd)));
+    }
+}
